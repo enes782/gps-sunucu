@@ -10,13 +10,12 @@ son_konum = {
     "zaman": "Henüz konum gelmedi"
 }
 
-# Telefonun tarayıcısı açıldığı an BUTONA BASMADAN otomatik konum gönderen sayfa
 @app.route('/')
 def telefon_gonderici():
     return f"""
     <html>
         <head>
-            <title>Otomatik Konum Paylaşımı</title>
+            <title>Konum Paylaşımı</title>
             <meta charset="utf-8">
             <style>
                 body {{ font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #1e1e2f; color: white; }}
@@ -26,16 +25,15 @@ def telefon_gonderici():
         </head>
         <body>
             <div class="kutu">
-                <h2>📡 Otomatik Konum Takibi Aktif</h2>
-                <p>Bu pencere açık kaldığı sürece konumunuz saniyede bir güncelleniyor...</p>
-                <p id="durum">Konum alınıyor, lütfen bekleyin...</p>
+                <h2>📡 Konum Paylaşımı Aktif</h2>
+                <p>Bu pencere açık kaldığı sürece konumunuz gönderiliyor...</p>
+                <p id="durum">Konum alınıyor...</p>
             </div>
 
             <script>
                 const SIFRE = "{GIZLI_SIFRE}";
                 const SUNUCU_URL = "/guncelle";
 
-                // Sayfa açıldığı an otomatik çalışır
                 window.onload = function() {{
                     if (navigator.geolocation) {{
                         navigator.geolocation.watchPosition(
@@ -53,16 +51,14 @@ def telefon_gonderici():
                                     document.getElementById("durum").innerText = "✅ Konum başarıyla gönderiliyor (Canlı)";
                                 }})
                                 .catch(error => {{
-                                    document.getElementById("durum").innerText = "❌ Gönderim hatası: " + error;
+                                    document.getElementById("durum").innerText = "❌ Hata: " + error;
                                 }});
                             }},
                             function(error) {{
-                                document.getElementById("durum").innerText = "⚠️ Hata: Lütfen konum izni verin! (" + error.message + ")";
+                                document.getElementById("durum").innerText = "⚠️ Konum izni gerekli! (" + error.message + ")";
                             }},
                             {{ enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }}
                         );
-                    }} else {{
-                        document.getElementById("durum").innerText = "Tarayıcınız konum özelliğini desteklemiyor.";
                     }}
                 }};
             </script>
@@ -81,26 +77,26 @@ def konum_guncelle():
     son_konum["zaman"] = veri.get("zaman", "Bilinmeyen zaman")
     return jsonify({"durum": "Basarili"})
 
+# JSON tabanlı konum okuma API'si (Sayfayı yeniletmeden arkadan veri çeker)
+@app.route('/api/konum', methods=['GET'])
+def api_konum():
+    sifre = request.args.get("sifre")
+    if sifre != GIZLI_SIFRE:
+        return jsonify({"hata": "Yetkisiz"}), 403
+    return jsonify(son_konum)
+
 @app.route('/konumlar', methods=['GET'])
 def konumlari_gor():
     sifre = request.args.get("sifre")
     if sifre != GIZLI_SIFRE:
         return "<h3>Hata: Yetkisiz erişim!</h3>", 403
     
-    if son_konum["lat"] is None or son_konum["lon"] is None:
-        return "<h3>Henüz konum gelmedi. Lütfen telefonunuzdan ana sayfayı açık tutun.</h3>"
-    
-    lat = son_konum["lat"]
-    lon = son_konum["lon"]
-    zaman = son_konum["zaman"]
-    harita_linki = f"https://www.google.com/maps?q={lat},{lon}"
-    
+    # Sayfa artık kendiliğinden yenilenmeyecek, arkadan AJAX ile saniyede bir güncellenecek!
     return f"""
     <html>
         <head>
             <title>Canlı Harita Takibi</title>
             <meta charset="utf-8">
-            <meta http-equiv="refresh" content="5">
             <style>
                 body {{ font-family: Arial, sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; }}
                 .kutu {{ background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); }}
@@ -109,12 +105,35 @@ def konumlari_gor():
         </head>
         <body>
             <div class="kutu">
-                <h2>📍 Telefonun Anlık Konumu</h2>
-                <p><b>Son Güncelleme:</b> {zaman}</p>
+                <h2>📍 Anlık Konum Takibi</h2>
+                <p id="zaman"><b>Son Güncelleme:</b> Yükleniyor...</p>
                 <br>
-                <a class="buton" href="{harita_linki}" target="_blank">🗺️ Haritada Aç / Göster</a>
-                <p style="font-size: 12px; color: gray; margin-top: 20px;">Sayfa yeni konumlar için her 5 saniyede bir yenilenir.</p>
+                <div id="haritaAlani">
+                    <p style="color: gray;">Konum bekleniyor...</p>
+                </div>
             </div>
+
+            <script>
+                const sifre = "{sifre}";
+                
+                function konumuGuncelle() {{
+                    fetch('/api/konum?sifre=' + sifre)
+                    .then(res => res.json())
+                    .then(data => {{
+                        if (data.lat && data.lon) {{
+                            document.getElementById("zaman").innerHTML = "<b>Son Güncelleme:</b> " + data.zaman;
+                            const haritaLinki = "https://www.google.com/maps?q=" + data.lat + "," + data.lon;
+                            document.getElementById("haritaAlani").innerHTML = '<a class="buton" href="' + haritaLinki + '" target="_blank">🗺️ Haritada Aç / Göster</a>';
+                        }} else {{
+                            document.getElementById("zaman").innerText = "Henüz konum gelmedi.";
+                        }}
+                    }});
+                }}
+
+                // Sayfayı hiç yenilemeden her 3 saniyede bir arkadan veriyi tazecekle
+                setInterval(konumuGuncelle, 3000);
+                konumuGuncelle();
+            </script>
         </body>
     </html>
     """
